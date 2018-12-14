@@ -1,0 +1,83 @@
+---
+Title: "Endometrium mutation burden model"
+author: "LM"
+date: "13 December 2018"
+output: html_document
+---
+
+```{r Libraries, message=FALSE, warning=FALSE}
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(readxl)
+library(magrittr)
+library(lme4)
+library(lmerTest)
+library(rlang) 
+```
+
+
+
+## Load in data
+```{r Load_data}
+# Here, we are only including 15/18 donors (i.e.only donors with data on BMI and parity)
+  endom_burden<- read.csv("~/Documents/Endometrium_deep_dive/Mutation_burden/Endometrium_mutation_burden/endom_burden_summary_file_for_model.csv")
+  head(endom_burden)
+  endom_grouped<- group_by(endom_burden, PatientID)
+  head(endom_grouped)
+# Look at raw data
+  ggplot(endom_grouped, aes(Age, Subs, colour = PatientID))+
+  geom_jitter(width = 0.2)+
+  theme(plot.title = element_text(size=8))+
+  ggtitle("Age-associated accumulation of somatic mutations in human endometrium (substitutions only)")+
+  theme(plot.title = element_text(size=14))
+```
+
+
+### Fit linear mixed effects models and estimate mutation rate per year
+Use this model instead of glmer with poisson distribution as there are enough mutations in each sample.
+Use random slope instead of random intercept as most women will start menarche at a similar age (~13 years), but to account for the potential differences in the rates at which mutations were acquired in different individuals due to variation in parity, contraception and other factors. 
+
+```{r Fit linear mixed effects models to estimate mutation rate per year}
+# AGE
+# Reduced model
+  reduced_lmer_model1 = lmer(Subs ~ Age + sensitivity + (Age - 1|PatientID), data=endom_burden, REML=F)
+  summary(reduced_lmer_model1)
+  
+# BODY MASS INDEX (BMI)
+# Test the effect of Body Mass Index (BMI) on  the rate of somatic mutation acquisition
+# Full model 1 
+  full_lmer_model1 = lmer(Subs ~ Age+ sensitivity + BMI + (Age - 1|PatientID), data=endom_burden, REML=F)
+  summary(full_lmer_model1)
+  anova(full_lmer_model1,reduced_lmer_model1)  
+  
+# DRIVER MUTATIONS
+# What effect does presence of a driver mutation have on the somatic mutation burden?
+# We know from the Wilcoxon-Mann-Whitney and Welch's t-tests on mutation burden and driver status that the presence of driver mutations has an effect on the mutation
+# burden. However, some of this may be due to the age effect. Therefore, in order to test the effect of driver variants on mutation burden, it is best to include gland driver status (binary, present =1 and absent =0) in the full model.
+  
+# Full model 2 
+  full_lmer_model2 = lmer(Subs ~ Age + sensitivity + BMI + Driver_status + (Age - 1|PatientID), data=endom_burden, REML=F)
+  summary(full_lmer_model2)
+  anova(full_lmer_model2, full_lmer_model1)
+  
+# PARITY
+# What effect does parity have on mutation burden?
+# Nulliparity is associated with an increased risk of endometrial cancer. What effect does parity have on mutation  burden?
+# Full model 3
+  full_lmer_model3 = lmer(Subs ~ Age + sensitivity + BMI + Driver_status+ Parity+ (Age - 1|PatientID), data=endom_burden, REML=F)
+  summary(full_lmer_model3)
+  anova(full_lmer_model3,full_lmer_model2)
+  
+  
+# Obtain confidence intervals for the final model (full model 2)
+  confint(full_lmer_model2)
+  
+
+```
+
+
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
