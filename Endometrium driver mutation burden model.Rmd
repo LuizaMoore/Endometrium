@@ -1,0 +1,99 @@
+---
+Title: "Endometrium driver mutation burden model"
+author: "LM"
+date: "13 December 2018"
+output: html_document
+---
+
+# Endometrium driver mutation burden modeling
+
+Markdown file to document the methods used in analysing the mutation burden of endometerium.
+
+## Load Libraries
+```{r Libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(magrittr)
+library(lme4)
+library(lmerTest)
+library(rlang) 
+library(knitr)
+library(kableExtra)
+library(pbkrtest)
+```
+
+
+## Load in data
+Here, we load sample level data for 15/18 donors with data on BMI and parity.
+```{r Load_data}
+endom_burden <- read.csv("endom_burden_summary_file_for_model.final.csv")
+# samples per patient
+endom_burden %>% group_by(PatientID) %>%  count(PatientID) %>%  rename(`Sample count` = n) %>% arrange(desc(`Sample count`)) %>%  kable() %>%  kable_styling(bootstrap_options = c("striped", "condensed"), full_width = F, position = "left")
+```
+
+
+```{r Plot_1, fig.align='center'}
+# Look at raw data
+  endom_burden %>% ggplot(aes(Age, Total_drivers, colour = PatientID)) +
+    geom_jitter(width = 0.2) +
+    theme(plot.title = element_text(size = 8)) +
+    ggtitle("Age-associated accumulation of driver mutations\nin human endometrium (substitutions only)") +
+    theme(plot.title = element_text(size = 14)) + theme_bw() +theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+## Fit model to estimate driver mutation rate per year
+To account for the non-independent sampling per patient we use a generalized linear mixed effects model with Poisson distribution.
+We also use a random slope with fixed intercept as most women will start menarche at a similar age (~13 years), but to account for the potential differences in the rates at which mutations were acquired in different individuals due to variation in parity, contraception and other factors. 
+
+We test features with a known affect on mutation burden or endometrial cancer risk;
+
+*Age
+
+*Read depth & VAF 
+
+*BMI
+
+*Parity 
+
+### Define full model and drop each fixed effect in turn
+```{r Fit linear mixed effects models to estimate mutation rate per year, message= FALSE, warning=FALSE}
+# Combine read depth and median sample depth as Vafdepth
+endom_burden %<>%  mutate(Vafdepth = Seq_X*Sample_Median_Vaf)
+
+full_glmer_model = glmer(Total_drivers ~ Age + Vafdepth + BMI + Parity + (Age - 1|PatientID), data=endom_burden, family = poisson(link = "log"), control =  glmerControl(optimizer="bobyqa", optCtrl = list(maxfun = 100000)))
+
+# "user" parametric boot function as defined in drop1.merMod help example
+ PBSumFun <- function(object, objectDrop, ...) {
+   pbnames <- c("stat", "p.value")
+   r <- if (missing(objectDrop)) {
+   setNames(rep(NA, length(pbnames)), pbnames)
+   } else {
+   # pbtest <- PBmodcomp(object, objectDrop, nsim = nsim, ref = NULL, seed=NULL, cl = clFit, details = 0)
+    pbtest <- PBmodcomp(object, objectDrop, nsim = nsim, ref = NULL, seed=NULL, details = 0)
+   unlist(pbtest$test[2, pbnames])
+   }
+   attr(r, "method") <- c("Parametric bootstrap via pbkrtest package")
+   r
+ }
+ 
+nsim <- 1000
+drop1(full_glmer_model, test = "user", sumFun = PBSumFun)
+# stopCluster(clFit)
+```
+
+### Remove any feature with P > 0.05 to make final model
+```{r Final model, message= FALSE, warning=FALSE}
+# Remove Vafdepth and BMI from full model
+final_glmer_model <- update(full_glmer_model, ~ . -BMI -Vafdepth, control=glmerControl(optimizer="bobyqa", optCtrl = list(maxfun = 100000)))
+# Drop each fixed effect from final model
+nsim = 1000
+drop1(final_glmer_model, test = "user", sumFun = PBSumFun)
+```
+### Print Final model
+```{r Print Final model}
+# Print final model summary
+print(summary(final_glmer_model))
+```
+
+
